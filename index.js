@@ -3,6 +3,7 @@ class DVBDeviceBLE {
   shortname = null;
   device = null;
   service = null;
+  serialNumber = null;
   SERVICE_UUID = 'dbd00001-ff30-40a5-9ceb-a17358d31999';
   LIST_FILES_UUID = 'dbd00010-ff30-40a5-9ceb-a17358d31999';
   GET_SHORTNAME_UUID = 'dbd00002-ff30-40a5-9ceb-a17358d31999';
@@ -48,15 +49,11 @@ class DVBDeviceBLE {
     const message = new Uint8Array(value.buffer);
     this.shortname = String.fromCharCode(...message);
   }
-  getFiles() {
+  getFileList() {
     return this.listOfFiles;
   }
-  async getSerialNumber() {
-    const characteristic = await this.service.getCharacteristic('2a25');
-    const value = await characteristic.readValue();
-    console.log(value);
-  }
-  async getFileList() {
+
+  async setFileList() {
     while (true) {
       const characteristic = await this.service.getCharacteristic(
         this.LIST_FILES_UUID
@@ -109,6 +106,16 @@ class DVBDeviceBLE {
     const char = uf8encode.encode(`1`);
     await characteristic.writeValue(char);
     console.log('Files erased');
+  }
+
+  getSerialNumber() {
+    console.log(`Serial Number: ${this.serialNumber}`);
+    return this.serialNumber;
+  }
+  async setSerialNumber() {
+    const characteristic = await this.service.getCharacteristic('2a25');
+    const value = await characteristic.readValue();
+    this.serialNumber = value;
   }
 }
 
