@@ -25,7 +25,8 @@ class DVBDeviceBLE {
       this.service = await connection.getPrimaryService(this.SERVICE_UUID);
       console.log(`Connected to service ${this.SERVICE_UUID}`);
       await this.setShortName();
-      await this.getFileList();
+      await this.setFileList();
+      // await this.setSerialNumber();
     } catch (error) {
       console.log(`Error: ${error}`);
       this.disconnect();
