@@ -37,6 +37,7 @@ class DVBDeviceBLE {
     this.device.gatt.disconnect();
     this.device = null;
     this.service = null;
+    this.serialNumber = null;
     this.listOfFiles = [];
   }
   async getShortName() {
