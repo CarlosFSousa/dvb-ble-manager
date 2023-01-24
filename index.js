@@ -160,3 +160,5 @@ class DVBDeviceBLE {
     }
   }
 }
+
+export default DVBDeviceBLE;
