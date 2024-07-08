@@ -5,14 +5,7 @@
 To run this project, install it locally.
 
 ```
-$ cd ../dir
-$ npm install ble-manager
-```
-
-You can also install it globally
-
-```
-$ npm install ble-manager -g
+$ npm install dvb-ble-manager
 ```
 
 ## Usage

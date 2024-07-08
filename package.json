@@ -1,11 +1,16 @@
 {
   "name": "dvb-ble-manager",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "DVBuddy ble manager",
-  "main": "index.js",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc"
   },
+  "files": [
+    "dist/**/*"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/CarlosFSousa/dvb-ble-manager.git"
@@ -20,5 +25,9 @@
   "bugs": {
     "url": "https://github.com/CarlosFSousa/dvb-ble-manager/issues"
   },
-  "homepage": "https://github.com/CarlosFSousa/dvb-ble-manager#readme"
+  "homepage": "https://github.com/CarlosFSousa/dvb-ble-manager#readme",
+  "devDependencies": {
+    "@types/web-bluetooth": "^0.0.20",
+    "typescript": "^5.5.2"
+  }
 }
