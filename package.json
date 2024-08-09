@@ -1,24 +1,29 @@
 {
-  "name": "dvb-ble-manager",
-  "version": "1.0.6",
-  "description": "DVBuddy ble manager",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/CarlosFSousa/dvb-ble-manager.git"
-  },
-  "keywords": [
-    "DVB",
-    "BLE",
-    "manager"
-  ],
-  "author": "Carlos Fontes e Sousa",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/CarlosFSousa/dvb-ble-manager/issues"
-  },
-  "homepage": "https://github.com/CarlosFSousa/dvb-ble-manager#readme"
+	"name": "dvb-ble-manager",
+	"version": "1.1.2",
+	"description": "DVBuddy ble manager",
+	"main": "index.js",
+	"scripts": {
+		"test": "echo \"Error: no test specified\" && exit 1"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/CarlosFSousa/dvb-ble-manager.git"
+	},
+	"keywords": [
+		"DVB",
+		"BLE",
+		"manager"
+	],
+	"type": "module",
+	"author": "Carlos Fontes e Sousa",
+	"license": "ISC",
+	"bugs": {
+		"url": "https://github.com/CarlosFSousa/dvb-ble-manager/issues"
+	},
+	"homepage": "https://github.com/CarlosFSousa/dvb-ble-manager#readme",
+	"dependencies": {
+		"@capacitor-community/bluetooth-le": "^6.0.1",
+		"cbor": "^9.0.2"
+	}
 }
