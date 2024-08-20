@@ -1,35 +1,30 @@
-# dvb-ble-manager
+# Project Name: Bluetooth LE Device Interaction
 
-## Setup
+This project facilitates communication with Bluetooth Low Energy (BLE) devices, particularly focusing on interaction with a "DVBDeviceBLE" and an "MCUManager."
 
-To run this project, install it locally.
+## Key Features:
 
-```
-$ cd ../dir
-$ npm install ble-manager
-```
+* **DVBDeviceBLE**
+    * Connects to BLE devices exposing a specific service (`DVB_SERVICE_UUID`).
+    * Retrieves device information (short name, serial number, firmware version).
+    * Lists files on the device.
+    * Downloads file content with progress updates.
+    * Supports formatting device storage.
+    * Handles both mobile and web environments.
 
-You can also install it globally
+* **MCUManager**
+    * Connects to BLE devices offering an MCU management service (`SERVICE_UUID`).
+    * Sends and receives messages using the CBOR encoding format.
+    * Supports device reset and echo commands.
+    * Handles image management:
+        * Queries image state.
+        * Erases image.
+        * Tests and confirms image with hash.
+        * Uploads image data with progress tracking.
 
-```
-$ npm install ble-manager -g
-```
+## Getting Started:
 
-## Usage
+1. **Install dependencies:**
 
-Require it into your project and initiate a class
-
-```
-const ble = require('dvb-ble-manager');
-const connection = new ble();
-```
-
-## Methods
-
-You can get the list of files, serial number and shortname of the device
-
-```
-const list_of_files = connection.getFileList();
-const serial_number = connection.getSerialNumber();
-const shortname = connection.getShortName();
-```
+   ```bash
+   npm install @capacitor-community/bluetooth-le cbor
