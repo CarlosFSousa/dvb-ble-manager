@@ -1,11 +1,5 @@
 import { BleClient } from '@capacitor-community/bluetooth-le';
-import CBOR from 'cbor';
-
-function isMobileDevice() {
-  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-    navigator.userAgent
-  );
-}
+import CBOR from 'cbor2';
 
 class DVBDeviceBLE {
   constructor(di = {}) {
@@ -53,7 +47,7 @@ class DVBDeviceBLE {
   }
 
   async _requestDevice(filters) {
-    if (isMobileDevice()) {
+    if (Capacitor.isNativePlatform()) {
       return this._requestMobileDevice(filters);
     } else {
       const params = {
@@ -111,7 +105,7 @@ class DVBDeviceBLE {
         `Connecting to device ${this._device.name || this._device.deviceId}...`
       );
 
-      if (isMobileDevice()) {
+      if (Capacitor.isNativePlatform()) {
         await BleClient.connect(this._device.deviceId);
         this._logger.info(
           `Connected to device ${this._device.name || this._device.deviceId}`
@@ -138,7 +132,7 @@ class DVBDeviceBLE {
     try {
       if (this._connectingCallback) this._connectingCallback();
 
-      if (!isMobileDevice()) {
+      if (!Capacitor.isNativePlatform()) {
         const server = await this._device.gatt.connect();
         this._logger.info(`Server connected.`);
         this._service = await server.getPrimaryService(this.SERVICE_UUID);
@@ -148,7 +142,7 @@ class DVBDeviceBLE {
       this._isConnected = true;
 
       try {
-        if (!isMobileDevice()) {
+        if (!Capacitor.isNativePlatform()) {
           this._serviceDVB = await this._device.gatt.getPrimaryService(
             this.DVB_SERVICE_UUID
           );
@@ -163,7 +157,7 @@ class DVBDeviceBLE {
         );
       }
 
-      if (isMobileDevice()) {
+      if (Capacitor.isNativePlatform()) {
         await BleClient.startNotifications(
           this._device.deviceId,
           this.SERVICE_UUID,
@@ -253,7 +247,7 @@ class DVBDeviceBLE {
 
   disconnect() {
     this._userRequestedDisconnect = true;
-    if (isMobileDevice()) {
+    if (Capacitor.isNativePlatform()) {
       return BleClient.disconnect(this._device.deviceId);
     } else {
       return this._device.gatt.disconnect();
@@ -482,7 +476,7 @@ class DVBDeviceBLE {
 
   async setShortName(shortname) {
     try {
-      if (isMobileDevice()) {
+      if (Capacitor.isNativePlatform()) {
         if (!shortname) {
           const result = await BleClient.read(
             this._device.deviceId,
@@ -533,7 +527,7 @@ class DVBDeviceBLE {
       return;
     }
     try {
-      if (isMobileDevice()) {
+      if (Capacitor.isNativePlatform()) {
         while (true) {
           const value = await BleClient.read(
             this._device.deviceId,
@@ -582,7 +576,7 @@ class DVBDeviceBLE {
       const uf8encode = new TextEncoder();
       const name_bytes = uf8encode.encode(`${name};${offset};`);
 
-      if (isMobileDevice()) {
+      if (Capacitor.isNativePlatform()) {
         await BleClient.write(
           this._device.deviceId,
           this.DVB_SERVICE_UUID,
@@ -665,7 +659,7 @@ class DVBDeviceBLE {
 
   async formatStorage() {
     try {
-      if (isMobileDevice()) {
+      if (Capacitor.isNativePlatform()) {
         await BleClient.read(
           this._device.deviceId,
           this.DVB_SERVICE_UUID,
@@ -689,7 +683,7 @@ class DVBDeviceBLE {
 
   async setSerialNumber() {
     try {
-      if (isMobileDevice()) {
+      if (Capacitor.isNativePlatform()) {
         const serial = await BleClient.read(
           this._device.deviceId,
           this.DVB_SERVICE_UUID,
@@ -717,7 +711,7 @@ class DVBDeviceBLE {
 
   async setFirmwareVersion() {
     try {
-      if (isMobileDevice()) {
+      if (Capacitor.isNativePlatform()) {
         const firmware = await BleClient.read(
           this._device.deviceId,
           this.DEVICE_INFORMATION_SERVICE_UUID,
@@ -747,7 +741,7 @@ class DVBDeviceBLE {
 
   async setHardwareVersion() {
     try {
-      if (isMobileDevice()) {
+      if (Capacitor.isNativePlatform()) {
         const hardware = await BleClient.read(
           this._device.deviceId,
           this.DEVICE_INFORMATION_SERVICE_UUID,
@@ -771,3 +765,5 @@ class DVBDeviceBLE {
     }
   }
 }
+
+export default DVBDeviceBLE;
