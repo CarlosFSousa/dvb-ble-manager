@@ -1,6 +1,6 @@
 {
 	"name": "dvb-ble-manager",
-	"version": "1.1.9",
+	"version": "1.1.11",
 	"description": "DVBuddy ble manager",
 	"main": "index.js",
 	"scripts": {

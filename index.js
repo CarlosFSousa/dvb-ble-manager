@@ -2,621 +2,799 @@ import { BleClient } from '@capacitor-community/bluetooth-le';
 import CBOR from 'cbor';
 
 function isMobileDevice() {
-	return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+        navigator.userAgent
+    );
 }
 
 class DVBDeviceBLE {
-	constructor(di = {}) {
-		// MTU
-		this.SERVICE_UUID = '8d53dc1d-1db7-4cd3-868b-8a527460aa84';
-		this.CHARACTERISTIC_UUID = 'da2e7828-fbce-4e01-ae9e-261174997c48';
-		this._mtu = 140;
-		this._device = null;
-		this._service = null;
-		this._characteristic = null;
-		this._connectCallback = null;
-		this._connectingCallback = null;
-		this._disconnectCallback = null;
-		this._messageCallback = null;
-		this._imageUploadProgressCallback = null;
-		this._uploadIsInProgress = false;
-		this._buffer = new Uint8Array();
-		this._logger = di.logger || { info: console.log, error: console.error };
-		this._seq = 0;
-		this._userRequestedDisconnect = false;
+    constructor(di = {}) {
+        this._isConnected = false;
+        this._reconnectAttempts = 0;
+        this._maxReconnectAttempts = 5;
 
-		// 
-		this._serviceDVB = null;
-		this._servceInfo = null;
-		this.listOfFiles = [];
-		this.shortname = null;
-		this.serialNumber = null;
-		this.firmwareVersion = null;
-		this.hardwareVersion = null;
-		this.DEVICE_INFORMATION_SERVICE_UUID = '0000180a-0000-1000-8000-00805f9b34fb';
-		this.SERIAL_NUMBER_UUID = 'dbd00003-ff30-40a5-9ceb-a17358d31999';
-		this.DVB_SERVICE_UUID = 'dbd00001-ff30-40a5-9ceb-a17358d31999';
-		this.LIST_FILES_UUID = 'dbd00010-ff30-40a5-9ceb-a17358d31999';
-		this.SHORTNAME_UUID = 'dbd00002-ff30-40a5-9ceb-a17358d31999';
-		this.WRITE_TO_DEVICE_UUID = 'dbd00011-ff30-40a5-9ceb-a17358d31999';
-		this.READ_FROM_DEVICE_UUID = 'dbd00012-ff30-40a5-9ceb-a17358d31999';
-		this.FORMAT_STORAGE_UUID = 'dbd00013-ff30-40a5-9ceb-a17358d31999';
-		this.FIRMWARE_REVISION_UUID = '00002a26-0000-1000-8000-00805f9b34fb';
-		this.HARDWARE_REVISION_UUID = '00002a27-0000-1000-8000-00805f9b34fb';
-	}
+        // MTU
+        this.SERVICE_UUID = '8d53dc1d-1db7-4cd3-868b-8a527460aa84';
+        this.CHARACTERISTIC_UUID = 'da2e7828-fbce-4e01-ae9e-261174997c48';
+        this._mtu = 140;
+        this._device = null;
+        this._service = null;
+        this._characteristic = null;
+        this._connectCallback = null;
+        this._connectingCallback = null;
+        this._disconnectCallback = null;
+        this._messageCallback = null;
+        this._imageUploadProgressCallback = null;
+        this._uploadIsInProgress = false;
+        this._buffer = new Uint8Array();
+        this._logger = di.logger || {info: console.log, error: console.error};
+        this._seq = 0;
+        this._userRequestedDisconnect = false;
 
-	async _requestDevice(filters) {
-		const params = {
-			acceptAllDevices: true,
-			optionalServices: [this.SERVICE_UUID,this.DVB_SERVICE_UUID, this.DEVICE_INFORMATION_SERVICE_UUID]
-		};
-		if (filters) {
-			params.filters = filters;
-			params.acceptAllDevices = false;
-		}
-		return navigator.bluetooth.requestDevice(params);
-	}
+        // DVB
+        this._serviceDVB = null;
+        this._serviceInfo = null;
+        this.listOfFiles = [];
+        this.shortname = null;
+        this.serialVersion = null;
+        this.firmwareVersion = null;
+        this.hardwareVersion = null;
+        this.duDeviceUIDVersion = null;
+        this.DEVICE_INFORMATION_SERVICE_UUID = '0000180a-0000-1000-8000-00805f9b34fb';
+        this.FIRMWARE_REVISION_UUID = '00002a26-0000-1000-8000-00805f9b34fb';
+        this.HARDWARE_REVISION_UUID = '00002a27-0000-1000-8000-00805f9b34fb';
 
-	async _requestMobileDevice(filters) {
-		const params = {
-			acceptAllDevices: true,
-			optionalServices: [this.SERVICE_UUID,this.DVB_SERVICE_UUID, this.DEVICE_INFORMATION_SERVICE_UUID]
-		};
-		if (filters) {
-			params.filters = filters;
-			params.acceptAllDevices = false;
-		}
-		return navigator.bluetooth.requestLEScan(params);
-	}
+        // custom DVB uuids
+        this.DVB_SERVICE_UUID = 'dbd00001-ff30-40a5-9ceb-a17358d31999';
+        this.SERIAL_NUMBER_UUID = 'dbd00001-ff30-40a5-9ceb-a17358d31999';
+        this.SHORTNAME_UUID = 'dbd00002-ff30-40a5-9ceb-a17358d31999';
+        this.DU_DEVICE_UID_UUID = 'dbd00003-ff30-40a5-9ceb-a17358d31999';
+        this.LIST_FILES_UUID = 'dbd00010-ff30-40a5-9ceb-a17358d31999';
+        this.WRITE_TO_DEVICE_UUID = 'dbd00011-ff30-40a5-9ceb-a17358d31999';
+        this.READ_FROM_DEVICE_UUID = 'dbd00012-ff30-40a5-9ceb-a17358d31999';
+        this.FORMAT_STORAGE_UUID = 'dbd00013-ff30-40a5-9ceb-a17358d31999';
+    }
 
-	async connect(filters) {
+    async _requestDevice(filters) {
+        if (isMobileDevice()) {
+            return this._requestMobileDevice(filters);
+        } else {
+            const params = {
+                acceptAllDevices: true,
+                optionalServices: [
+                    this.SERVICE_UUID,
+                    this.DVB_SERVICE_UUID,
+                    this.DEVICE_INFORMATION_SERVICE_UUID,
+                ],
+            };
+            if (filters) {
+                params.filters = filters;
+                params.acceptAllDevices = false;
+            }
+            return navigator.bluetooth.requestDevice(params);
+        }
+    }
+
+    async _requestMobileDevice(filters) {
+        const params = {
+            services: [
+                this.SERVICE_UUID,
+                this.DVB_SERVICE_UUID,
+                this.DEVICE_INFORMATION_SERVICE_UUID,
+            ],
+            allowDuplicates: false,
+        };
+        if (filters && filters.length > 0) {
+            params.name = filters[0].name;
+        }
+
+        return new Promise((resolve, reject) => {
+            BleClient.requestLEScan(params, (result) => {
+                if (result.localName) {
+                    BleClient.stopLEScan();
+                    resolve({
+                        deviceId: result.device.deviceId,
+                        name: result.localName,
+                    });
+                }
+            }).catch(reject);
+
+            setTimeout(() => {
+                BleClient.stopLEScan();
+                reject(new Error('Scan timeout'));
+            }, 10000);
+        });
+    }
+
+    async connect(filters) {
         try {
             this._device = await this._requestDevice(filters);
-            
-            this._logger.info(`Connecting to device ${this.name}...`);
-            this._device.addEventListener('gattserverdisconnected', async (event) => {
-                this._logger.info(event);
-                if (!this._userRequestedDisconnect) {
-                    this._logger.info('Trying to reconnect');
-                    await this._connect();
-                } else {
-                    await this._disconnected();
-                }
-            });
+
+            this._logger.info(
+                `Connecting to device ${this._device.name || this._device.deviceId}...`
+            );
+
+            if (isMobileDevice()) {
+                await BleClient.connect(this._device.deviceId);
+                this._logger.info(
+                    `Connected to device ${this._device.name || this._device.deviceId}`
+                );
+
+                // For mobile, we don't need to set up a disconnect listener here
+                // as Capacitor handles reconnections automatically
+            } else {
+                this._device.addEventListener(
+                    'gattserverdisconnected',
+                    this._handleDisconnect.bind(this)
+                );
+            }
+
             await this._connect();
         } catch (error) {
-            this._logger.error(error);
+            this._logger.error(`Connection error: ${error.message}`);
             await this._disconnected();
             throw error;
         }
     }
 
-	async _connect() {
+    async _connect() {
         try {
             if (this._connectingCallback) this._connectingCallback();
-            const server = await this._device.gatt.connect();
-            this._logger.info(`Server connected.`);
-            this._service = await server.getPrimaryService(this.SERVICE_UUID);
-			if (this._device.name && this._device.name.includes('DVB')) {
-				this._serviceDVB = await server.getPrimaryService(this.DVB_SERVICE_UUID);
-				this._serviceInfo = await server.getPrimaryService(this.DEVICE_INFORMATION_SERVICE_UUID);
-				await this.setDeviceInfo();
-				
-			}
+
+            if (!isMobileDevice()) {
+                const server = await this._device.gatt.connect();
+                this._logger.info(`Server connected.`);
+                this._service = await server.getPrimaryService(this.SERVICE_UUID);
+            }
+
             this._logger.info(`Service connected.`);
-            this._characteristic = await this._service.getCharacteristic(this.CHARACTERISTIC_UUID);
-            this._characteristic.addEventListener(
-                'characteristicvaluechanged',
-                this._notification.bind(this)
-            );
-            await this._characteristic.startNotifications();
+            this._isConnected = true;
+
+            try {
+                if (!isMobileDevice()) {
+                    this._serviceDVB = await this._device.gatt.getPrimaryService(
+                        this.DVB_SERVICE_UUID
+                    );
+                    this._serviceInfo = await this._device.gatt.getPrimaryService(
+                        this.DEVICE_INFORMATION_SERVICE_UUID
+                    );
+                }
+            } catch (error) {
+                this._logger.info(
+                    `DVB-specific services not available: ${error.message}`
+                );
+            }
+
+            if (isMobileDevice()) {
+                await BleClient.startNotifications(
+                    this._device.deviceId,
+                    this.SERVICE_UUID,
+                    this.CHARACTERISTIC_UUID,
+                    (value) => {
+                        this._notification({target: {value}});
+                    }
+                );
+            } else {
+                this._characteristic = await this._service.getCharacteristic(
+                    this.CHARACTERISTIC_UUID
+                );
+                this._characteristic.addEventListener(
+                    'characteristicvaluechanged',
+                    this._notification.bind(this)
+                );
+                await this._characteristic.startNotifications();
+            }
+
             await this._connected();
             if (this._uploadIsInProgress) {
                 this._uploadNext();
             }
         } catch (error) {
-            this._logger.error(error);
-            await this._disconnected();
+            this._logger.error(`Connection error: ${error.message}`);
+            this._isConnected = false;
             throw error;
         }
     }
 
-	async setDeviceInfo() {
-        await this.setFileList();
-        await this.setShortName();
-        await this.setSerialNumber();
-        await this.setHardwareVersion();
-        await this.setFirmwareVersion();
+    async setDeviceInfo() {
+
+        if (!this._isConnected) {
+            this._logger.error('Device is not connected. Cannot set device info.');
+            return;
+        }
+
+        try {
+            await this.setFileList();
+            await this.setShortName();
+            await this.setSerialNumber();
+            await this.setDUDeviceUID();
+            await this.setHardwareVersion();
+            await this.setFirmwareVersion();
+        } catch (error) {
+            this._logger.error(`Error setting device info: ${error.message}`);
+        }
     }
 
+    async _handleDisconnect(event) {
+        this._logger.info('Device disconnected', event);
+        this._isConnected = false;
+        if (!this._userRequestedDisconnect) {
+            this._logger.info('Attempting to reconnect...');
+            this._reconnectAttempts = 0;
+            this._reconnect();
+        } else {
+            await this._disconnected();
+        }
+    }
 
-	disconnect() {
-		this._userRequestedDisconnect = true;
-		return this._device.gatt.disconnect();
-	}
+    async _reconnect() {
+        if (this._reconnectAttempts >= this._maxReconnectAttempts) {
+            this._logger.error(
+                'Max reconnection attempts reached. Please try connecting manually.'
+            );
+            await this._disconnected();
+            return;
+        }
 
-	onConnecting(callback) {
-		this._connectingCallback = callback;
-		return this;
-	}
+        this._reconnectAttempts++;
+        this._logger.info(`Reconnection attempt ${this._reconnectAttempts}...`);
 
-	onConnect(callback) {
-		this._connectCallback = callback;
-		return this;
-	}
+        try {
+            await this._connect();
+        } catch (error) {
+            this._logger.error(`Reconnection error: ${error.message}`);
+            setTimeout(() => this._reconnect(), 2000);
+        }
+    }
 
-	onDisconnect(callback) {
-		this._disconnectCallback = callback;
-		return this;
-	}
+    disconnect() {
+        this._userRequestedDisconnect = true;
+        if (isMobileDevice()) {
+            return BleClient.disconnect(this._device.deviceId);
+        } else {
+            return this._device.gatt.disconnect();
+        }
+    }
 
-	onMessage(callback) {
-		this._messageCallback = callback;
-		return this;
-	}
+    onConnecting(callback) {
+        this._connectingCallback = callback;
+        return this;
+    }
 
-	onImageUploadProgress(callback) {
-		this._imageUploadProgressCallback = callback;
-		return this;
-	}
+    onConnect(callback) {
+        this._connectCallback = callback;
+        return this;
+    }
 
-	onImageUploadFinished(callback) {
-		this._imageUploadFinishedCallback = callback;
-		return this;
-	}
+    onDisconnect(callback) {
+        this._disconnectCallback = callback;
+        return this;
+    }
 
-	async _connected() {
-		if (this._connectCallback) this._connectCallback();
-	}
+    onMessage(callback) {
+        this._messageCallback = callback;
+        return this;
+    }
 
-	async _disconnected() {
-		this._logger.info('Disconnected.');
-		if (this._disconnectCallback) this._disconnectCallback();
-		this._device = null;
-		this._service = null;
-		this._serviceDVB = null;
-		this._serviceInfo = null;
-		this._characteristic = null;
-		this._uploadIsInProgress = false;
-		this._userRequestedDisconnect = false;
-		this.serialNumber = null;
-		this.listOfFiles = [];
-	}
+    onImageUploadProgress(callback) {
+        this._imageUploadProgressCallback = callback;
+        return this;
+    }
 
-	get name() {
-		return this._device && this._device.name;
-	}
+    onImageUploadFinished(callback) {
+        this._imageUploadFinishedCallback = callback;
+        return this;
+    }
 
-	async _sendMessage(op, group, id, data) {
-		const _flags = 0;
-		let encodedData = [];
-		if (typeof data !== 'undefined') {
-			encodedData = [...new Uint8Array(CBOR.encode(data))];
-		}
-		const length_lo = encodedData.length & 255;
-		const length_hi = encodedData.length >> 8;
-		const group_lo = group & 255;
-		const group_hi = group >> 8;
-		const message = [
-			op,
-			_flags,
-			length_hi,
-			length_lo,
-			group_hi,
-			group_lo,
-			this._seq,
-			id,
-			...encodedData
-		];
-		// console.log('>'  + message.map(x => x.toString(16).padStart(2, '0')).join(' '));
-		await this._characteristic.writeValueWithoutResponse(Uint8Array.from(message));
-		this._seq = (this._seq + 1) % 256;
-	}
+    async _connected() {
+        if (this._connectCallback) this._connectCallback();
+    }
 
-	_notification(event) {
-		// console.log('message received');
-		const message = new Uint8Array(event.target.value.buffer);
-		// console.log(message);
-		// console.log('<'  + [...message].map(x => x.toString(16).padStart(2, '0')).join(' '));
-		this._buffer = new Uint8Array([...this._buffer, ...message]);
-		const messageLength = this._buffer[2] * 256 + this._buffer[3];
-		if (this._buffer.length < messageLength + 8) return;
-		this._processMessage(this._buffer.slice(0, messageLength + 8));
-		this._buffer = this._buffer.slice(messageLength + 8);
-	}
+    async _disconnected() {
+        this._logger.info('Disconnected.');
+        if (this._disconnectCallback) this._disconnectCallback();
+        this._device = null;
+        this._service = null;
+        this._serviceDVB = null;
+        this._serviceInfo = null;
+        this._characteristic = null;
+        this._uploadIsInProgress = false;
+        this._userRequestedDisconnect = false;
+        this.serialVersion = null;
+        this.listOfFiles = [];
+    }
 
-	_processMessage(message) {
-		const [op, _flags, length_hi, length_lo, group_hi, group_lo, _seq, id] = message;
-		const data = CBOR.decode(message.slice(8).buffer);
-		const length = length_hi * 256 + length_lo;
-		const group = group_hi * 256 + group_lo;
-		if (group === 1 && id === 1 && (data.rc === 0 || data.rc === undefined) && data.off) {
-			this._uploadOffset = data.off;
-			this._uploadNext();
-			return;
-		}
-		if (this._messageCallback) this._messageCallback({ op, group, id, data, length });
-	}
+    get name() {
+        return this._device && this._device.name;
+    }
 
-	cmdReset() {
-		return this._sendMessage(2, 0, 5);
-	}
+    async _sendMessage(op, group, id, data) {
+        const _flags = 0;
+        let encodedData = [];
+        if (typeof data !== 'undefined') {
+            encodedData = [...new Uint8Array(CBOR.encode(data))];
+        }
+        const length_lo = encodedData.length & 255;
+        const length_hi = encodedData.length >> 8;
+        const group_lo = group & 255;
+        const group_hi = group >> 8;
+        const message = [
+            op,
+            _flags,
+            length_hi,
+            length_lo,
+            group_hi,
+            group_lo,
+            this._seq,
+            id,
+            ...encodedData,
+        ];
+        // console.log('>'  + message.map(x => x.toString(16).padStart(2, '0')).join(' '));
+        await this._characteristic.writeValueWithoutResponse(
+            Uint8Array.from(message)
+        );
+        this._seq = (this._seq + 1) % 256;
+    }
 
-	smpEcho(message) {
-		return this._sendMessage(2, 0, 0, { d: message });
-	}
+    _notification(event) {
+        // console.log('message received');
+        const message = new Uint8Array(event.target.value.buffer);
+        // console.log(message);
+        // console.log('<'  + [...message].map(x => x.toString(16).padStart(2, '0')).join(' '));
+        this._buffer = new Uint8Array([...this._buffer, ...message]);
+        const messageLength = this._buffer[2] * 256 + this._buffer[3];
+        if (this._buffer.length < messageLength + 8) return;
+        this._processMessage(this._buffer.slice(0, messageLength + 8));
+        this._buffer = this._buffer.slice(messageLength + 8);
+    }
 
-	cmdImageState() {
-		return this._sendMessage(0, 1, 0);
-	}
+    _processMessage(message) {
+        const [op, _flags, length_hi, length_lo, group_hi, group_lo, _seq, id] =
+            message;
+        const data = CBOR.decode(message.slice(8).buffer);
+        const length = length_hi * 256 + length_lo;
+        const group = group_hi * 256 + group_lo;
+        if (
+            group === 1 &&
+            id === 1 &&
+            (data.rc === 0 || data.rc === undefined) &&
+            data.off
+        ) {
+            this._uploadOffset = data.off;
+            this._uploadNext();
+            return;
+        }
+        if (this._messageCallback)
+            this._messageCallback({op, group, id, data, length});
+    }
 
-	cmdImageErase() {
-		return this._sendMessage(2, 1, 5, {});
-	}
+    cmdReset() {
+        return this._sendMessage(2, 0, 5);
+    }
 
-	cmdImageTest(hash) {
-		return this._sendMessage(2, 1, 0, {
-			hash,
-			confirm: false
-		});
-	}
+    smpEcho(message) {
+        return this._sendMessage(2, 0, 0, {d: message});
+    }
 
-	cmdImageConfirm(hash) {
-		return this._sendMessage(2, 1, 0, {
-			hash,
-			confirm: true
-		});
-	}
+    cmdImageState() {
+        return this._sendMessage(0, 1, 0);
+    }
 
-	_hash(image) {
-		return crypto.subtle.digest('SHA-256', image);
-	}
+    cmdImageErase() {
+        return this._sendMessage(2, 1, 5, {});
+    }
 
-	async _uploadNext() {
-		if (this._uploadOffset >= this._uploadImage.byteLength) {
-			this._uploadIsInProgress = false;
-			this._imageUploadFinishedCallback();
-			return;
-		}
+    cmdImageTest(hash) {
+        return this._sendMessage(2, 1, 0, {
+            hash,
+            confirm: false,
+        });
+    }
 
-		const nmpOverhead = 8;
-		const message = { data: new Uint8Array(), off: this._uploadOffset };
-		if (this._uploadOffset === 0) {
-			message.len = this._uploadImage.byteLength;
-			message.sha = new Uint8Array(await this._hash(this._uploadImage));
-		}
-		this._imageUploadProgressCallback({
-			percentage: Math.floor((this._uploadOffset / this._uploadImage.byteLength) * 100)
-		});
+    cmdImageConfirm(hash) {
+        return this._sendMessage(2, 1, 0, {
+            hash,
+            confirm: true,
+        });
+    }
 
-		const length = this._mtu - CBOR.encode(message).byteLength - nmpOverhead;
+    _hash(image) {
+        return crypto.subtle.digest('SHA-256', image);
+    }
 
-		message.data = new Uint8Array(
-			this._uploadImage.slice(this._uploadOffset, this._uploadOffset + length)
-		);
+    async _uploadNext() {
+        if (this._uploadOffset >= this._uploadImage.byteLength) {
+            this._uploadIsInProgress = false;
+            this._imageUploadFinishedCallback();
+            return;
+        }
 
-		this._uploadOffset += length;
+        const nmpOverhead = 8;
+        const message = {data: new Uint8Array(), off: this._uploadOffset};
+        if (this._uploadOffset === 0) {
+            message.len = this._uploadImage.byteLength;
+            message.sha = new Uint8Array(await this._hash(this._uploadImage));
+        }
+        this._imageUploadProgressCallback({
+            percentage: Math.floor(
+                (this._uploadOffset / this._uploadImage.byteLength) * 100
+            ),
+        });
 
-		this._sendMessage(2, 1, 1, message);
-	}
+        const length = this._mtu - CBOR.encode(message).byteLength - nmpOverhead;
 
-	async cmdUpload(image, slot = 0) {
-		if (this._uploadIsInProgress) {
-			this._logger.error('Upload is already in progress.');
-			return;
-		}
-		this._uploadIsInProgress = true;
+        message.data = new Uint8Array(
+            this._uploadImage.slice(this._uploadOffset, this._uploadOffset + length)
+        );
 
-		this._uploadOffset = 0;
-		this._uploadImage = image;
-		this._uploadSlot = slot;
+        this._uploadOffset += length;
 
-		this._uploadNext();
-	}
+        this._sendMessage(2, 1, 1, message);
+    }
 
-	async imageInfo(image) {
-		// https://interrupt.memfault.com/blog/mcuboot-overview#mcuboot-image-binaries
+    async cmdUpload(image, slot = 0) {
+        if (this._uploadIsInProgress) {
+            this._logger.error('Upload is already in progress.');
+            return;
+        }
+        this._uploadIsInProgress = true;
 
-		const info = {};
-		const view = new Uint8Array(image);
+        this._uploadOffset = 0;
+        this._uploadImage = image;
+        this._uploadSlot = slot;
 
-		// check header length
-		if (view.length < 4096) {
-			throw new Error('Image header is too short');
-		}
+        this._uploadNext();
+    }
 
-		// parse image version
-		const version = [view[12], view[13], view[14], view[15]].join('.');
+    async imageInfo(image) {
+        // https://interrupt.memfault.com/blog/mcuboot-overview#mcuboot-image-binaries
 
-		info.version = version;
+        const info = {};
+        const view = new Uint8Array(image);
 
-		// parse image hash
-		const hashStart = 20;
-		const hashEnd = hashStart + 32;
-		const hash = view.slice(hashStart, hashEnd);
+        // check header length
+        if (view.length < 4096) {
+            throw new Error('Image header is too short');
+        }
 
-		info.hash = hash;
+        // parse image version
+        const version = [view[12], view[13], view[14], view[15]].join('.');
 
-		return info;
-	}
+        info.version = version;
 
-	getShortName() {
-		return this.shortname;
-	}
+        // parse image hash
+        const hashStart = 20;
+        const hashEnd = hashStart + 32;
+        const hash = view.slice(hashStart, hashEnd);
 
-	async setShortName(shortname) {
-		try {
-			if (isMobileDevice()) {
-				if (!shortname) {
-					const result = await BleClient.read(
-						this._device.deviceId,
-						this.DVB_SERVICE_UUID,
-						this.SHORTNAME_UUID
-					);
-					this.shortname = new TextDecoder().decode(result);
-				} else {
-					const uf8encode = new TextEncoder();
-					const newShortName = uf8encode.encode(shortname);
-					await BleClient.write(
-						this._device.deviceId,
-						this.DVB_SERVICE_UUID,
-						this.SHORTNAME_UUID,
-						newShortName
-					);
-					this.shortname = shortname;
-				}
-			} else {
-				if (!shortname) {
-					const characteristic = await this._serviceDVB.getCharacteristic(this.SHORTNAME_UUID);
-					const value = await characteristic.readValue();
-					const shortName = new TextDecoder().decode(value);
-					this.shortname = shortName;
-				} else {
-					const characteristic = await this._serviceDVB.getCharacteristic(this.SHORTNAME_UUID);
-					const uf8encode = new TextEncoder();
-					const newShortName = uf8encode.encode(shortname);
-					await characteristic.writeValue(newShortName);
-					this.shortname = newShortName;
-				}
-			}
-		} catch (error) {
-			this._logger.error(error);
-		}
-	}
-	getFileList() {
-		return this.listOfFiles;
-	}
+        info.hash = hash;
 
-	async setFileList() {
-		try {
-			if (isMobileDevice()) {
-				while (true) {
-					const value = await BleClient.read(
-						this._device.deviceId,
-						this.DVB_SERVICE_UUID,
-						this.LIST_FILES_UUID
-					);
-					const message = new Uint8Array(value);
-					if (message.byteLength === 0) return;
-					const byteString = String.fromCharCode(...message);
-					const split_string = byteString.split(';');
-					const name = split_string[0];
-					const length = split_string[1];
-					this.listOfFiles.push({ name, length });
-				}
-			} else {
-				while (true) {
-					const characteristic = await this._serviceDVB.getCharacteristic(this.LIST_FILES_UUID);
-					const value = await characteristic.readValue();
-					const message = new Uint8Array(value.buffer);
-					if (message.byteLength === 0) return;
-					const byteString = String.fromCharCode(...message);
-					const split_string = byteString.split(';');
-					const name = split_string[0];
-					const length = split_string[1];
-					this.listOfFiles.push({ name, length });
-				}
-			}
-		} catch (error) {
-			this._logger.error(error);
-		}
-	}
+        return info;
+    }
 
-	async getFileContent(name, progressCallback) {
-		try {
-			const arrayBuffers = [];
-			let offset = 0;
-			let totalSize = 0;
+    getShortName() {
+        return this.shortname;
+    }
 
-			const fileInfo = this.listOfFiles.find((file) => file.name === name);
-			if (fileInfo) {
-				totalSize = parseInt(fileInfo.length);
-			}
+    async setShortName(shortname) {
+        try {
+            if (isMobileDevice()) {
+                if (!shortname) {
+                    const result = await BleClient.read(
+                        this._device.deviceId,
+                        this.DVB_SERVICE_UUID,
+                        this.SHORTNAME_UUID
+                    );
+                    this.shortname = new TextDecoder().decode(result);
+                } else {
+                    const uf8encode = new TextEncoder();
+                    const newShortName = uf8encode.encode(shortname);
+                    await BleClient.write(
+                        this._device.deviceId,
+                        this.DVB_SERVICE_UUID,
+                        this.SHORTNAME_UUID,
+                        newShortName
+                    );
+                    this.shortname = shortname;
+                }
+            } else {
+                if (!shortname) {
+                    const characteristic = await this._serviceDVB.getCharacteristic(
+                        this.SHORTNAME_UUID
+                    );
+                    const value = await characteristic.readValue();
+                    const shortName = new TextDecoder().decode(value);
+                    this.shortname = shortName;
+                } else {
+                    const characteristic = await this._serviceDVB.getCharacteristic(
+                        this.SHORTNAME_UUID
+                    );
+                    const uf8encode = new TextEncoder();
+                    const newShortName = uf8encode.encode(shortname);
+                    await characteristic.writeValue(newShortName);
+                    this.shortname = newShortName;
+                }
+            }
+        } catch (error) {
+            this._logger.error(error);
+        }
+    }
 
-			const uf8encode = new TextEncoder();
-			const name_bytes = uf8encode.encode(`${name};${offset};`);
+    getFileList() {
+        return this.listOfFiles;
+    }
 
-			if (isMobileDevice()) {
-				await BleClient.write(
-					this._device.deviceId,
-					this.DVB_SERVICE_UUID,
-					this.WRITE_TO_DEVICE_UUID,
-					name_bytes
-				);
+    async setFileList() {
+        if (!this._isConnected) {
+            this._logger.error('Device is not connected. Cannot set file list.');
+            return;
+        }
+        try {
+            if (isMobileDevice()) {
+                while (true) {
+                    const value = await BleClient.read(
+                        this._device.deviceId,
+                        this.DVB_SERVICE_UUID,
+                        this.LIST_FILES_UUID
+                    );
+                    const message = new Uint8Array(value);
+                    if (message.byteLength === 0) return;
+                    const byteString = String.fromCharCode(...message);
+                    const split_string = byteString.split(';');
+                    const name = split_string[0];
+                    const length = split_string[1];
+                    this.listOfFiles.push({name, length});
+                }
+            } else {
+                while (true) {
+                    const characteristic = await this._serviceDVB.getCharacteristic(
+                        this.LIST_FILES_UUID
+                    );
+                    const value = await characteristic.readValue();
+                    const message = new Uint8Array(value.buffer);
+                    if (message.byteLength === 0) return;
+                    const byteString = String.fromCharCode(...message);
+                    const split_string = byteString.split(';');
+                    const name = split_string[0];
+                    const length = split_string[1];
+                    this.listOfFiles.push({name, length});
+                }
+            }
+        } catch (error) {
+            this._logger.error(`Error setting file list: ${error.message}`);
+        }
+    }
 
-				while (true) {
-					const display_info = await BleClient.read(
-						this._device.deviceId,
-						this.DVB_SERVICE_UUID,
-						this.READ_FROM_DEVICE_UUID
-					);
+    async getFileContent(name, progressCallback) {
+        try {
+            const arrayBuffers = [];
+            let offset = 0;
+            let totalSize = 0;
 
-					if (display_info.byteLength !== 0) {
-						offset += display_info.byteLength;
-						this._logger.info(`Appending length to offset: ${offset}`);
-						const name_bytes = uf8encode.encode(`${name};${offset};`);
-						await BleClient.write(
-							this._device.deviceId,
-							this.DVB_SERVICE_UUID,
-							this.WRITE_TO_DEVICE_UUID,
-							name_bytes
-						);
-						const array = new Uint8Array(display_info);
-						array.map((x) => {
-							arrayBuffers.push(x);
-						});
+            const fileInfo = this.listOfFiles.find((file) => file.name === name);
+            if (fileInfo) {
+                totalSize = parseInt(fileInfo.length);
+            }
 
-						if (totalSize > 0 && progressCallback) {
-							const progress = Math.min(100, Math.round((offset / totalSize) * 100));
-							progressCallback(progress);
-						}
-					} else {
-						break;
-					}
-				}
-			} else {
-				const write_characteristic = await this._serviceDVB.getCharacteristic(
-					this.WRITE_TO_DEVICE_UUID
-				);
-				const read_characteristic = await this._serviceDVB.getCharacteristic(
-					this.READ_FROM_DEVICE_UUID
-				);
+            const uf8encode = new TextEncoder();
+            const name_bytes = uf8encode.encode(`${name};${offset};`);
 
-				await write_characteristic.writeValue(name_bytes);
-				while (true) {
-					const display_info = await read_characteristic.readValue();
-					if (display_info.byteLength !== 0) {
-						offset += display_info.byteLength;
-						this._logger.info(`Appending length to offset: ${offset}`);
-						const name_bytes = uf8encode.encode(`${name};${offset};`);
-						await write_characteristic.writeValue(name_bytes);
-						const array = new Uint8Array(display_info.buffer);
-						array.map((x) => {
-							arrayBuffers.push(x);
-						});
+            if (isMobileDevice()) {
+                await BleClient.write(
+                    this._device.deviceId,
+                    this.DVB_SERVICE_UUID,
+                    this.WRITE_TO_DEVICE_UUID,
+                    name_bytes
+                );
 
-						if (totalSize > 0 && progressCallback) {
-							const progress = Math.min(100, Math.round((offset / totalSize) * 100));
-							progressCallback(progress);
-						}
-					} else {
-						break;
-					}
-				}
-			}
+                while (true) {
+                    const display_info = await BleClient.read(
+                        this._device.deviceId,
+                        this.DVB_SERVICE_UUID,
+                        this.READ_FROM_DEVICE_UUID
+                    );
 
+                    if (display_info.byteLength !== 0) {
+                        offset += display_info.byteLength;
+                        this._logger.info(`Appending length to offset: ${offset}`);
+                        const name_bytes = uf8encode.encode(`${name};${offset};`);
+                        await BleClient.write(
+                            this._device.deviceId,
+                            this.DVB_SERVICE_UUID,
+                            this.WRITE_TO_DEVICE_UUID,
+                            name_bytes
+                        );
+                        const array = new Uint8Array(display_info);
+                        array.forEach((x) => {
+                            arrayBuffers.push(x);
+                        });
 
-			return new Uint8Array(arrayBuffers);
-		} catch (error) {
-			this._logger.error(error);
-		}
-	}
+                        if (totalSize > 0 && progressCallback) {
+                            const progress = Math.min(
+                                100,
+                                Math.round((offset / totalSize) * 100)
+                            );
+                            progressCallback(progress);
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            } else {
+                const write_characteristic = await this._serviceDVB.getCharacteristic(
+                    this.WRITE_TO_DEVICE_UUID
+                );
+                const read_characteristic = await this._serviceDVB.getCharacteristic(
+                    this.READ_FROM_DEVICE_UUID
+                );
 
-	async formatStorage() {
-		try {
-			if (isMobileDevice()) {
-				await BleClient.read(this._device.deviceId, this.DVB_SERVICE_UUID, this.FORMAT_STORAGE_UUID);
-			} else {
-				const characteristic = await this._serviceDVB.getCharacteristic(this.FORMAT_STORAGE_UUID);
-				await characteristic.readValue();
-			}
-			this._logger.info('Files erased');
-		} catch (error) {
-			this._logger.error(error);
-		}
-	}
+                await write_characteristic.writeValue(name_bytes);
+                while (true) {
+                    const display_info = await read_characteristic.readValue();
+                    if (display_info.byteLength !== 0) {
+                        offset += display_info.byteLength;
+                        this._logger.info(`Appending length to offset: ${offset}`);
+                        const name_bytes = uf8encode.encode(`${name};${offset};`);
+                        await write_characteristic.writeValue(name_bytes);
+                        const array = new Uint8Array(display_info.buffer);
+                        array.forEach((x) => {
+                            arrayBuffers.push(x);
+                        });
 
-	getSerialNumber() {
-		return this.serialNumber;
-	}
+                        if (totalSize > 0 && progressCallback) {
+                            const progress = Math.min(
+                                100,
+                                Math.round((offset / totalSize) * 100)
+                            );
+                            progressCallback(progress);
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            }
 
-	async setSerialNumber() {
-		try {
-			if (isMobileDevice()) {
-				const serial = await BleClient.read(
-					this._device.deviceId,
-					this.DVB_SERVICE_UUID,
-					this.SERIAL_NUMBER_UUID
-				);
-				const serialNumber = new TextDecoder().decode(serial);
-				this.serialNumber = serialNumber;
-			} else {
-				const characteristic = await this._serviceDVB.getCharacteristic(this.SERIAL_NUMBER_UUID);
-				const serial = await characteristic.readValue();
-				const serialNumber = new TextDecoder().decode(serial);
-				this.serialNumber = serialNumber;
-				this._logger.info(`Serial Number: ${this.serialNumber}`);
-			}
-		} catch (error) {
-			this._logger.error(error);
-		}
-	}
+            return new Uint8Array(arrayBuffers);
+        } catch (error) {
+            this._logger.error(error);
+        }
+    }
 
-	getFirmwareVersion() {
-		return this.firmwareVersion;
-	}
+    async formatStorage() {
+        try {
+            if (isMobileDevice()) {
+                await BleClient.read(
+                    this._device.deviceId,
+                    this.DVB_SERVICE_UUID,
+                    this.FORMAT_STORAGE_UUID
+                );
+            } else {
+                const characteristic = await this._serviceDVB.getCharacteristic(
+                    this.FORMAT_STORAGE_UUID
+                );
+                await characteristic.readValue();
+            }
+            this._logger.info('Files erased');
+        } catch (error) {
+            this._logger.error(error);
+        }
+    }
 
-	async setFirmwareVersion() {
-		try {
-			if (isMobileDevice()) {
-				const firmware = await BleClient.read(
-					this._device.deviceId,
-					this.DEVICE_INFORMATION_SERVICE_UUID,
-					this.FIRMWARE_REVISION_UUID
-				);
-				const firmwareVersion = new TextDecoder().decode(firmware);
-				this._logger.info('Firmware Version:', firmwareVersion);
-				this.firmwareVersion = firmwareVersion;
-			} else {
-				const characteristic = await this._serviceInfo.getCharacteristic(
-					this.FIRMWARE_REVISION_UUID
-				);
-				const firmware = await characteristic.readValue();
-				const firmwareVersion = new TextDecoder().decode(firmware);
-				this._logger.info('Firmware Version:', firmwareVersion);
-				this.firmwareVersion = firmwareVersion;
-			}
-		} catch (error) {
-			this._logger.error('Error getting firmware version:', error);
-			throw error;
-		}
-	}
+    getSerialNumber() {
+        return this.serialVersion;
+    }
 
-	getHardwareVersion() {
-		return this.hardwareVersion;
-	}
+    async setSerialNumber() {
+        try {
+            if (isMobileDevice()) {
+                const serial = await BleClient.read(
+                    this._device.deviceId,
+                    this.DVB_SERVICE_UUID,
+                    this.SERIAL_NUMBER_UUID
+                );
+                const serialNumber = new TextDecoder().decode(serial);
+                this.serialVersion = serialNumber;
+            } else {
+                const characteristic = await this._serviceDVB.getCharacteristic(
+                    this.SERIAL_NUMBER_UUID
+                );
+                const serial = await characteristic.readValue();
+                const serialVersion = new TextDecoder().decode(serial);
+                this._logger.info('Serial Version:', serialVersion);
+                this.serialVersion = serialVersion;
+            }
+        } catch (error) {
+            this._logger.error(error);
+        }
+    }
 
-	async setHardwareVersion() {
-		try {
-			if (isMobileDevice()) {
-				const hardware = await BleClient.read(
-					this._device.deviceId,
-					this.DEVICE_INFORMATION_SERVICE_UUID,
-					this.HARDWARE_REVISION_UUID
-				);
-				const hardwareVersion = new TextDecoder().decode(hardware);
-				this._logger.info('Hardware Version:', hardwareVersion);
-				this.hardwareVersion = hardwareVersion;
-			} else {
-				const characteristic = await this._serviceInfo.getCharacteristic(
-					this.HARDWARE_REVISION_UUID
-				);
-				const hardware = await characteristic.readValue();
-				const hardwareVersion = new TextDecoder().decode(hardware);
-				this._logger.info('Hardware Version:', hardwareVersion);
-				this.hardwareVersion = hardwareVersion;
-			}
-		} catch (error) {
-			this._logger.error('Error getting firmware version:', error);
-			throw error;
-		}
-	}
+    getDUDeviceUID() {
+        return this.duDeviceUIDVersion;
+    }
 
-	async setDeviceInfo() {
-		await this.setFileList();
-		await this.setShortName();
-		await this.setSerialNumber();
-		await this.setHardwareVersion();
-		await this.setFirmwareVersion();
-	}
+    async setDUDeviceUID() {
+        try {
+            if (isMobileDevice()) {
+                const duDeviceUID = await BleClient.read(
+                    this._device.deviceId,
+                    this.DVB_SERVICE_UUID,
+                    this.DU_DEVICE_UID_UUID
+                );
+                const duDeviceUIDString = new TextDecoder().decode(duDeviceUID);
+                this._logger.info('DUDeviceUID:', duDeviceUIDString);
+                this.duDeviceUID = duDeviceUIDString;
+            } else {
+                const characteristic = await this._serviceDVB.getCharacteristic(
+                    this.DU_DEVICE_UID_UUID
+                );
+                const duDeviceUID = await characteristic.readValue();
+                const duDeviceUIDVersion = new TextDecoder().decode(duDeviceUID);
+                this._logger.info('DU Device UID Version:', duDeviceUIDVersion);
+                this.duDeviceUIDVersion = duDeviceUIDVersion;
+            }
+        } catch (error) {
+            this._logger.error("Error getting DUDeviceUID", error);
+            throw error;
+        }
+    }
+
+    getFirmwareVersion() {
+        return this.firmwareVersion;
+    }
+
+    async setFirmwareVersion() {
+        try {
+            if (isMobileDevice()) {
+                const firmware = await BleClient.read(
+                    this._device.deviceId,
+                    this.DEVICE_INFORMATION_SERVICE_UUID,
+                    this.FIRMWARE_REVISION_UUID
+                );
+                const firmwareVersion = new TextDecoder().decode(firmware);
+                this._logger.info('Firmware Version:', firmwareVersion);
+                this.firmwareVersion = firmwareVersion;
+            } else {
+                const characteristic = await this._serviceInfo.getCharacteristic(
+                    this.FIRMWARE_REVISION_UUID
+                );
+                const firmware = await characteristic.readValue();
+                const firmwareVersion = new TextDecoder().decode(firmware);
+                this._logger.info('Firmware Version:', firmwareVersion);
+                this.firmwareVersion = firmwareVersion;
+            }
+        } catch (error) {
+            this._logger.error('Error getting firmware version:', error);
+            throw error;
+        }
+    }
+
+    getHardwareVersion() {
+        return this.hardwareVersion;
+    }
+
+    async setHardwareVersion() {
+        try {
+            if (isMobileDevice()) {
+                const hardware = await BleClient.read(
+                    this._device.deviceId,
+                    this.DEVICE_INFORMATION_SERVICE_UUID,
+                    this.HARDWARE_REVISION_UUID
+                );
+                const hardwareVersion = new TextDecoder().decode(hardware);
+                this._logger.info('Hardware Version:', hardwareVersion);
+                this.hardwareVersion = hardwareVersion;
+            } else {
+                const characteristic = await this._serviceInfo.getCharacteristic(
+                    this.HARDWARE_REVISION_UUID
+                );
+                const hardware = await characteristic.readValue();
+                const hardwareVersion = new TextDecoder().decode(hardware);
+                this._logger.info('Hardware Version:', hardwareVersion);
+                this.hardwareVersion = hardwareVersion;
+            }
+        } catch (error) {
+            this._logger.error('Error getting firmware version:', error);
+            throw error;
+        }
+    }
 }
